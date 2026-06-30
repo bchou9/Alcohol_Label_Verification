@@ -3,7 +3,7 @@ from google import genai
 from google.genai import types
 from concurrent.futures import ThreadPoolExecutor
 import re
-import json
+import unicodedata
 
 # 1. Page Config for Sarah's 73-year-old User Benchmark (Large font targets)
 st.set_page_config(page_title="TTB AI Verifier", layout="wide")
@@ -13,11 +13,68 @@ st.caption("Shared Services Prototype — Built for Speed and Compliance")
 # Secure key retrieval from Streamlit Secrets
 api_key = st.secrets.get("GEMINI_API_KEY", None)
 
-def simple_fuzzy_match(str1, str2):
-    """Dave's Requirement: Normalizes strings to ignore case, spacing, and punctuation."""
-    s1 = re.sub(r'[^\w\s]', '', str1.lower().strip())
-    s2 = re.sub(r'[^\w\s]', '', str2.lower().strip())
-    return (s1 in s2) or (s2 in s1)
+GOV_WARNING_PATTERN = re.compile(
+    r"GOVERNMENT WARNING:\s*"
+    r"\(1\)\s*According to the Surgeon General, women should not drink alcoholic beverages during pregnancy because of the risk of birth defects\.\s*"
+    r"\(2\)\s*Consumption of alcoholic beverages impairs your ability to drive a car or operate machinery, and may cause health problems\.?",
+    re.DOTALL,
+)
+
+
+def normalize_text(value):
+    # Canonicalize for deterministic, case-insensitive comparisons across punctuation/spacing variants.
+    normalized = unicodedata.normalize("NFKD", (value or "")).encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9\s]", " ", normalized.lower())).strip()
+
+
+def levenshtein_distance(a, b):
+    if a == b:
+        return 0
+    if not a:
+        return len(b)
+    if not b:
+        return len(a)
+
+    prev_row = list(range(len(b) + 1))
+    for i, ca in enumerate(a, start=1):
+        curr_row = [i]
+        for j, cb in enumerate(b, start=1):
+            insert_cost = curr_row[j - 1] + 1
+            delete_cost = prev_row[j] + 1
+            replace_cost = prev_row[j - 1] + (ca != cb)
+            curr_row.append(min(insert_cost, delete_cost, replace_cost))
+        prev_row = curr_row
+    return prev_row[-1]
+
+
+def normalized_similarity(a, b):
+    a_norm = normalize_text(a)
+    b_norm = normalize_text(b)
+    if not a_norm and not b_norm:
+        return 1.0
+    if not a_norm or not b_norm:
+        return 0.0
+    dist = levenshtein_distance(a_norm, b_norm)
+    return 1.0 - (dist / max(len(a_norm), len(b_norm)))
+
+
+def token_sort_similarity(a, b):
+    a_sorted = " ".join(sorted(normalize_text(a).split()))
+    b_sorted = " ".join(sorted(normalize_text(b).split()))
+    return normalized_similarity(a_sorted, b_sorted)
+
+
+def nuanced_brand_match(form_brand, extracted_brand, threshold=0.90):
+    # Dave's nuance: tolerate case/punctuation/order differences but keep deterministic thresholding.
+    score = token_sort_similarity(form_brand, extracted_brand)
+    form_norm = normalize_text(form_brand)
+    extracted_norm = normalize_text(extracted_brand)
+    return score >= threshold or form_norm in extracted_norm or extracted_norm in form_norm
+
+
+def has_valid_government_warning(raw_text):
+    # Deterministic 27 CFR 16.21 gate: exact all-caps heading + statutory warning body pattern.
+    return bool(GOV_WARNING_PATTERN.search((raw_text or "").strip()))
 
 def analyze_label_with_ai(image_file, file_name):
     """Extracts label text with strict schema constraints to prevent hallucinations."""
@@ -26,19 +83,25 @@ def analyze_label_with_ai(image_file, file_name):
         return {
             "brand": "OLD TOM DISTILLERY", 
             "abv": "45%", 
-            "raw_text": "GOVERNMENT WARNING: (1) According to the Surgeon General..."
+            "raw_text": (
+                "GOVERNMENT WARNING: (1) According to the Surgeon General, women should not drink "
+                "alcoholic beverages during pregnancy because of the risk of birth defects. "
+                "(2) Consumption of alcoholic beverages impairs your ability to drive a car or "
+                "operate machinery, and may cause health problems."
+            )
         }
     
     try:
         client = genai.Client(api_key=api_key)
         # Read the Streamlit UploadedFile into raw binary bytes
         image_bytes = image_file.getvalue()
+        mime_type = image_file.type or "image/jpeg"
         
         # Enforce strict JSON object response structure from the model boundary
         response = client.models.generate_content(
             model='gemini-2.5-flash', # Sub-3.5 second processing speed target
             contents=[
-                types.Part.from_bytes(data=image_bytes, mime_type=image_file.type),
+                types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
                 "Analyze this alcohol label. Extract the exact brand name, alcohol content (ABV), and the health warning block verbatim."
             ],
             config=types.GenerateContentConfig(
@@ -54,7 +117,10 @@ def analyze_label_with_ai(image_file, file_name):
                 ),
             ),
         )
-        return json.loads(response.text)
+        # Trust SDK schema-bound parsing to avoid brittle manual JSON string handling.
+        if isinstance(response.parsed, dict):
+            return response.parsed
+        return {"error": f"Failed parsing {file_name}: structured response was not a JSON object"}
     except Exception as e:
         return {"error": f"Failed parsing {file_name}: {str(e)}"}
 
@@ -77,11 +143,9 @@ with tab1:
                 ai_data = analyze_label_with_ai(uploaded_file, uploaded_file.name)
                 
                 if ai_data and "error" not in ai_data:
-                    # JENNY'S REQ: Case-sensitive strict binary formatting requirement
-                    has_strict_warning = "GOVERNMENT WARNING:" in ai_data.get("raw_text", "")
+                    has_strict_warning = has_valid_government_warning(ai_data.get("raw_text", ""))
                     
-                    # DAVE'S REQ: Forgiving fuzzy matching strategy
-                    brand_match = simple_fuzzy_match(brand, ai_data.get("brand", ""))
+                    brand_match = nuanced_brand_match(brand, ai_data.get("brand", ""))
                     abv_match = abv.strip() in ai_data.get("abv", "")
                     
                     if has_strict_warning and brand_match and abv_match:
@@ -121,7 +185,7 @@ with tab2:
                     res = future.result()
                     
                     if "error" not in res:
-                        warn_check = "GOVERNMENT WARNING:" in res.get("raw_text", "")
+                        warn_check = has_valid_government_warning(res.get("raw_text", ""))
                         verdict = "🟢 PASS" if warn_check else "🔴 FAIL (Warning Format Incorrect)"
                         extracted_info = f"Brand: {res.get('brand')} | ABV: {res.get('abv')}"
                     else:
