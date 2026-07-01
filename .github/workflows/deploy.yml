@@ -1,0 +1,21 @@
+name: Automated FedScale Sync Pipeline
+
+on:
+  push:
+    branches: [ main, master ] # Fires automatically whenever you push code updates
+
+jobs:
+  sync-to-huggingface:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Assets
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Push Code Mirror to Space Boundary
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        # Forces Hugging Face to mirror your exact GitHub repository state instantly
+        run: git push --force https://bchou9:$HF_TOKEN@huggingface.co/spaces/bchou9/Alcohol_Label_Verification main:main
