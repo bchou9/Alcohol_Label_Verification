@@ -260,14 +260,14 @@ def analyze_label_with_ai(image_file, file_name):
         if brand_find:
             candidate_brand = brand_find.group(1).strip()
             
-            # Clean out preceding noise descriptors BEFORE splitting strings
-            candidate_brand = re.sub(r".*(?:bottled|distilled|and|by)\s+", "", candidate_brand, flags=re.IGNORECASE)
-            
-            # Handle remaining OCR noise safely by extracting the final 2 core identity tokens
+            # 1. SPLIT FIRST: Grab the final 2 tokens to bypass long preceding text strings
             words = candidate_brand.split()
             if len(words) > 2:
                 candidate_brand = " ".join(words[-2:])
                 
+            # 2. CLEAN SECOND: Strip out common preceding noise descriptors safely
+            candidate_brand = re.sub(r".*(?:bottled|distilled|and|by)\s+", "", candidate_brand, flags=re.IGNORECASE)
+            
             if len(candidate_brand) > 2:
                 extracted_brand = candidate_brand.upper()
         
