@@ -31,6 +31,11 @@ st.set_page_config(page_title="TTB AI Verifier", layout="wide")
 st.title("🇺🇸 TTB Label Verification Portal")
 st.caption("Shared Services Prototype — Built for Speed and Compliance")
 
+with st.sidebar:
+    st.header("🔑 Authentication Gate")
+    st.caption("Marcus's Guideline: Transient pass-through prevents administrative server token leaks.")
+    user_pasted_key = st.text_input("Enter Gemini API Key Override", type="password")
+
 # Secure key retrieval with safe fallback when secrets.toml is not provisioned.
 try:
     api_key = st.secrets.get("GEMINI_API_KEY", None)
@@ -39,6 +44,13 @@ except Exception:
 
 if not api_key:
     api_key = get_api_key()
+
+# Dynamic user override takes absolute precedence over static secrets or system environment flags
+if user_pasted_key.strip():
+    api_key = user_pasted_key.strip()
+    st.sidebar.success("🔒 Live Gemini Engine Key Loaded from Browser Memory.")
+elif not api_key:
+    st.sidebar.warning("⚠️ Running in Mock/Fallback Mode. Provide a key to run real analysis.")
 
 GOV_WARNING_PATTERN = re.compile(
     r"GOVERNMENT WARNING:\s*"
