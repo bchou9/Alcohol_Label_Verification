@@ -22,4 +22,4 @@ RUN pip install --no-cache-dir --upgrade -r requirements.txt
 COPY --chown=user app.py app.py
 
 # Force Streamlit to route explicitly over port 7860 under a non-root context
-CMD ["streamlit", "run", "app.py", "--server.port=7860", "--server.address=0.0.0.0"]
+CMD ["streamlit", "run", "app.py", "--server.port=7860", "--server.address=0.0.0.0", "--server.enableXsrfProtection=false"]
