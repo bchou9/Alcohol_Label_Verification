@@ -258,19 +258,16 @@ def analyze_label_with_ai(image_file, file_name):
             brand_find = tier2_pattern.search(full_extracted_text)
         
         if brand_find:
-            # Dynamically extract whatever custom text was printed right before the keyword
             candidate_brand = brand_find.group(1).strip()
             
-            # If there's an OCR prefix typo (like DOTTLED instead of BOTTLED, .etc), grab only the final 2 words
+            # Clean out preceding noise descriptors BEFORE splitting strings
+            candidate_brand = re.sub(r".*(?:bottled|distilled|and|by)\s+", "", candidate_brand, flags=re.IGNORECASE)
+            
+            # Handle remaining OCR noise safely by extracting the final 2 core identity tokens
             words = candidate_brand.split()
             if len(words) > 2:
                 candidate_brand = " ".join(words[-2:])
                 
-            if len(candidate_brand) > 2:
-                extracted_brand = candidate_brand.upper()
-
-            # Clean out common preceding noise descriptors from line wrapping
-            candidate_brand = re.sub(r".*(?:bottled|distilled|and|by)\s+", "", candidate_brand, flags=re.IGNORECASE)
             if len(candidate_brand) > 2:
                 extracted_brand = candidate_brand.upper()
         
