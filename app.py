@@ -61,7 +61,11 @@ GOV_WARNING_PATTERN = re.compile(
     re.DOTALL,
 )
 
-ABV_PERCENT_PATTERN = re.compile(r"(\d{1,2}(?:\.\d+)?)\s*%")
+# Upgraded to capture numbers trailing into '%', '* alc', 'vol', or loose spacing variants
+ABV_PERCENT_PATTERN = re.compile(
+    r"(\d{1,2}(?:\.\d+)?)\s*(?:%|\*|alc|vol|\./vol)", 
+    re.IGNORECASE
+)
 PROOF_PATTERN = re.compile(r"(\d{1,3}(?:\.\d+)?)\s*proof", re.IGNORECASE)
 
 
@@ -220,20 +224,46 @@ def analyze_label_with_ai(image_file, file_name):
         # Consolidate all pixel-extracted text into a single string boundary
         full_extracted_text = " ".join(ocr_results)
         
-        # Search the real pixel text to intelligently populate fields
+        # Initialize default dynamic values to protect downstream compliance evaluation
         extracted_brand = "UNKNOWN_BRAND"
         extracted_abv = "UNKNOWN_ABV"
         
-        # Look for ABV patterns dynamically in the image pixels
-        abv_match = re.search(r'\d{1,2}(?:\.\d+)?\s*%', full_extracted_text)
-        if abv_match:
-            extracted_abv = abv_match.group(0)
+        # 1. DYNAMIC ABV/PROOF MATCHING LAYER
+        # Catches multi-formatted federal ABV patterns (e.g., '45% Alc/Vol', '40% vol', '90 Proof')
+        abv_pattern = re.compile(
+            r"(\d{1,3}(?:\.\d+)?\s*(?:%\s*(?:alc|vol|alc\./vol\.)?|proof))", 
+            re.IGNORECASE
+        )
+        abv_find = abv_pattern.search(full_extracted_text)
+        if abv_find:
+            extracted_abv = abv_find.group(1).strip()
             
-        # Look for typical distilled spirits positioning keywords
-        if "distillery" in full_extracted_text.lower():
-            extracted_brand = "OLD TOM DISTILLERY"
-        elif "deal" in full_extracted_text.lower():
-            extracted_brand = "NEW DEAL OLD TOM GIN"
+        # 2. TIERED BRAND MATCHING LAYER (Resolves "TOR" early matching anomaly)
+        # Tier 1: Prioritize explicit corporate facility descriptors (Highly Accurate)
+        tier1_pattern = re.compile(r"([A-Z0-9\s'\-]+?)\s+(?:distillery|distilling)", re.IGNORECASE)
+        brand_find = tier1_pattern.search(full_extracted_text)
+        
+        # Tier 2: Fallback to loose product commodities if no facility string matches
+        if not brand_find:
+            tier2_pattern = re.compile(
+                r"([A-Z0-9\s'\-]+?)\s+(?:gin|vodka|whiskey|whisky|bourbon|rum|tequila)", 
+                re.IGNORECASE
+            )
+            brand_find = tier2_pattern.search(full_extracted_text)
+        
+        if brand_find:
+            # Dynamically extract whatever custom text was printed right before the keyword
+            candidate_brand = brand_find.group(1).strip()
+            # Clean out common preceding noise descriptors from line wrapping
+            candidate_brand = re.sub(r".*(?:bottled|distilled|and|by)\s+", "", candidate_brand, flags=re.IGNORECASE)
+            if len(candidate_brand) > 2:
+                extracted_brand = candidate_brand.upper()
+        
+        # Fallback safeguard: If no keywords hit, fall back to initial pixel string tokens
+        if extracted_brand == "UNKNOWN_BRAND" and len(ocr_results) > 0:
+            words = full_extracted_text.split()
+            if len(words) >= 2:
+                extracted_brand = " ".join(words[:3]).upper()
 
         return {
             "brand": extracted_brand,
@@ -244,7 +274,7 @@ def analyze_label_with_ai(image_file, file_name):
     except Exception as e:
         return {"error": f"Local Fallback Engine Error: {str(e)}"}
 
-# 2. Dual Interface Layout
+# 2. Dual Interface Layout Render Blocks
 tab1, tab2 = st.tabs(["🗂️ Single Review Engine", "📦 Parallel Batch Importer"])
 
 with tab1:
@@ -317,3 +347,4 @@ with tab2:
                     
             status_text.text("Batch verification execution cycle complete.")
             st.dataframe(results, use_container_width=True)
+
