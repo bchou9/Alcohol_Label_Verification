@@ -154,6 +154,11 @@ def evaluate_compliance(form_brand, form_abv, ai_data):
         "abv_match": abv_matches(form_abv, ai_data.get("abv", "")),
     }
 
+@st.cache_resource
+def get_ocr_reader():
+    """Caches the EasyOCR reader globally in RAM so it loads exactly once on startup."""
+    return easyocr.Reader(['en'], gpu=False)
+
 def analyze_label_with_ai(image_file, file_name):
     """
     Extracts label text. Falls back to a local, zero-key EasyOCR engine 
@@ -204,7 +209,7 @@ def analyze_label_with_ai(image_file, file_name):
         img_np = np.array(img)
         
         # Initialize the local OCR reader (cached natively inside the container)
-        reader = easyocr.Reader(['en'], gpu=False)
+        reader = get_ocr_reader()
         ocr_results = reader.readtext(img_np, detail=0)
         
         # Consolidate all pixel-extracted text into a single string boundary
