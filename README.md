@@ -1,4 +1,14 @@
-# 🇺🇸 TTB AI-Powered Alcohol Label Verification Portal
+---
+title: TTB Alcohol Label Verification Portal
+emoji: 🍷
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
+# TTB AI-Powered Alcohol Label Verification Portal
 
 An AI-native, high-velocity decision support prototype designed to optimize label audit pipelines. By consolidating execution boundaries into a single-file Streamlit layout, the solution completely avoids the high total cost of ownership (TCO), maintenance overhead, and cross-origin security friction of multi-tier web infrastructure.
 
