@@ -1,27 +1,25 @@
-# Use a lightweight, official Python image optimized for enterprise cloud runtimes
+# Use an official lightweight Python base image
 FROM python:3.12-slim
 
-# Set strict system security boundaries inside the container
-WORKDIR /app
-
-# Expose system tools required to compile standard C extensions safely
+# Configure system requirements safely (software-properties-common removed)
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
-    software-properties-common \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy your modern, pinned dependency configurations 
-COPY requirements.txt .
+# Hugging Face security mandate: Create and configure an isolated non-root user account
+RUN useradd -m -u 1000 user
+USER user
+ENV PATH="/home/user/.local/bin:$PATH"
 
-# Install dependencies into an isolated, clean global environment layer
-RUN pip install --no-cache-dir -r requirements.txt
+WORKDIR /app
 
-# Copy your core application assets into the container workspace
-COPY app.py .
+# Copy requirement configurations with appropriate non-root ownership permissions
+COPY --chown=user requirements.txt requirements.txt
+RUN pip install --no-cache-dir --upgrade -r requirements.txt
 
-# Expose port 7860 (Haug Face Spaces routes traffic through port 7860, not 8501)
-EXPOSE 7860
+# Copy application script assets into the isolated workspace directory 
+COPY --chown=user app.py app.py
 
-# Force Streamlit to listen cleanly on the correct federal network mapping
+# Force Streamlit to route explicitly over port 7860 under a non-root context
 CMD ["streamlit", "run", "app.py", "--server.port=7860", "--server.address=0.0.0.0"]
