@@ -1,0 +1,44 @@
+# ====================================================================
+# 🇺🇸 TTB Label Verification Portal — Enterprise .gitignore
+# ====================================================================
+
+# --- Streamlit Configurations & State ---
+.streamlit/config.toml
+!.streamlit/apps.toml
+# CRITICAL: Never commit your local federal API tokens or keys
+.streamlit/secrets.toml
+
+# --- Python Environment & Caching ---
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# --- Automated Testing & QA Artifacts (Pytest / Playwright) ---
+.pytest_cache/
+.test_app.py.swp
+test-results/
+playwright-report/
+blob-report/
+videos/
+trace.zip
+junit/
+
+# --- Operating System & IDE Overhead ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- Media & Test Assets (Optional) ---
+# Uncomment the line below if you have a folder of large test bottle images 
+# that you don't want bloating your GitHub repository history size.
+# test_labels/

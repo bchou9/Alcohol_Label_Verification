@@ -1,17 +1,44 @@
 import streamlit as st
 from google import genai
 from google.genai import types
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
 import unicodedata
+import os
+
+
+def get_api_key():
+    # Marcus: support constrained environments where Streamlit secrets may be unavailable.
+    env_key = os.getenv("GEMINI_API_KEY")
+    if env_key:
+        return env_key
+
+    env_path = os.path.join(os.path.dirname(__file__), ".env")
+    if not os.path.exists(env_path):
+        return None
+
+    with open(env_path, "r", encoding="utf-8") as f:
+        for line in f:
+            raw = line.strip()
+            if raw.startswith("GEMINI_API_KEY="):
+                value = raw.split("=", 1)[1].strip().strip('"').strip("'")
+                if value and not value.startswith("YOUR_"):
+                    return value
+    return None
 
 # 1. Page Config for Sarah's 73-year-old User Benchmark (Large font targets)
 st.set_page_config(page_title="TTB AI Verifier", layout="wide")
 st.title("🇺🇸 TTB Label Verification Portal")
 st.caption("Shared Services Prototype — Built for Speed and Compliance")
 
-# Secure key retrieval from Streamlit Secrets
-api_key = st.secrets.get("GEMINI_API_KEY", None)
+# Secure key retrieval with safe fallback when secrets.toml is not provisioned.
+try:
+    api_key = st.secrets.get("GEMINI_API_KEY", None)
+except Exception:
+    api_key = None
+
+if not api_key:
+    api_key = get_api_key()
 
 GOV_WARNING_PATTERN = re.compile(
     r"GOVERNMENT WARNING:\s*"
@@ -19,6 +46,9 @@ GOV_WARNING_PATTERN = re.compile(
     r"\(2\)\s*Consumption of alcoholic beverages impairs your ability to drive a car or operate machinery, and may cause health problems\.?",
     re.DOTALL,
 )
+
+ABV_PERCENT_PATTERN = re.compile(r"(\d{1,2}(?:\.\d+)?)\s*%")
+PROOF_PATTERN = re.compile(r"(\d{1,3}(?:\.\d+)?)\s*proof", re.IGNORECASE)
 
 
 def normalize_text(value):
@@ -74,7 +104,41 @@ def nuanced_brand_match(form_brand, extracted_brand, threshold=0.90):
 
 def has_valid_government_warning(raw_text):
     # Deterministic 27 CFR 16.21 gate: exact all-caps heading + statutory warning body pattern.
-    return bool(GOV_WARNING_PATTERN.search((raw_text or "").strip()))
+    source = (raw_text or "").strip()
+    if "GOVERNMENT WARNING:" not in source:  # Jenny: heading must be all-caps, not title case.
+        return False
+    return bool(GOV_WARNING_PATTERN.search(source))
+
+
+def extract_abv_value(text):
+    if not text:
+        return None
+    percent_match = ABV_PERCENT_PATTERN.search(text)
+    if percent_match:
+        return float(percent_match.group(1))
+
+    # Fallback: convert proof to ABV (ABV = Proof / 2) for common label formats.
+    proof_match = PROOF_PATTERN.search(text)
+    if proof_match:
+        return float(proof_match.group(1)) / 2.0
+    return None
+
+
+def abv_matches(form_abv, extracted_abv, tolerance=0.25):
+    form_value = extract_abv_value(form_abv)
+    extracted_value = extract_abv_value(extracted_abv)
+    if form_value is not None and extracted_value is not None:
+        return abs(form_value - extracted_value) <= tolerance
+    return normalize_text(form_abv) == normalize_text(extracted_abv)
+
+
+def evaluate_compliance(form_brand, form_abv, ai_data):
+    # Single deterministic gate for Sarah's checklist flow and batch consistency.
+    return {
+        "has_strict_warning": has_valid_government_warning(ai_data.get("raw_text", "")),
+        "brand_match": nuanced_brand_match(form_brand, ai_data.get("brand", "")),
+        "abv_match": abv_matches(form_abv, ai_data.get("abv", "")),
+    }
 
 def analyze_label_with_ai(image_file, file_name):
     """Extracts label text with strict schema constraints to prevent hallucinations."""
@@ -95,6 +159,8 @@ def analyze_label_with_ai(image_file, file_name):
         client = genai.Client(api_key=api_key)
         # Read the Streamlit UploadedFile into raw binary bytes
         image_bytes = image_file.getvalue()
+        if not image_bytes:
+            return {"error": f"Failed parsing {file_name}: empty image payload"}
         mime_type = image_file.type or "image/jpeg"
         
         # Enforce strict JSON object response structure from the model boundary
@@ -119,7 +185,13 @@ def analyze_label_with_ai(image_file, file_name):
         )
         # Trust SDK schema-bound parsing to avoid brittle manual JSON string handling.
         if isinstance(response.parsed, dict):
-            return response.parsed
+            parsed = response.parsed
+            required = {"brand", "abv", "raw_text"}
+            if set(parsed.keys()) != required:
+                return {"error": f"Failed parsing {file_name}: schema keys mismatch"}
+            if not all(isinstance(parsed.get(k), str) for k in required):
+                return {"error": f"Failed parsing {file_name}: schema value types invalid"}
+            return parsed
         return {"error": f"Failed parsing {file_name}: structured response was not a JSON object"}
     except Exception as e:
         return {"error": f"Failed parsing {file_name}: {str(e)}"}
@@ -143,10 +215,10 @@ with tab1:
                 ai_data = analyze_label_with_ai(uploaded_file, uploaded_file.name)
                 
                 if ai_data and "error" not in ai_data:
-                    has_strict_warning = has_valid_government_warning(ai_data.get("raw_text", ""))
-                    
-                    brand_match = nuanced_brand_match(brand, ai_data.get("brand", ""))
-                    abv_match = abv.strip() in ai_data.get("abv", "")
+                    checks = evaluate_compliance(brand, abv, ai_data)
+                    has_strict_warning = checks["has_strict_warning"]
+                    brand_match = checks["brand_match"]
+                    abv_match = checks["abv_match"]
                     
                     if has_strict_warning and brand_match and abv_match:
                         st.success("🟢 AUTOMATED PASS: Label matches application rules completely.")
@@ -178,15 +250,15 @@ with tab2:
             with ThreadPoolExecutor(max_workers=4) as executor:
                 futures = {executor.submit(analyze_label_with_ai, f, f.name): f.name for f in batch_files}
                 
-                for i, future in enumerate(futures):
+                for i, future in enumerate(as_completed(futures)):
                     filename = futures[future]
                     status_text.text(f"Analyzing {filename}...")
                     
                     res = future.result()
                     
                     if "error" not in res:
-                        warn_check = has_valid_government_warning(res.get("raw_text", ""))
-                        verdict = "🟢 PASS" if warn_check else "🔴 FAIL (Warning Format Incorrect)"
+                        checks = evaluate_compliance(brand, abv, res)
+                        verdict = "🟢 PASS" if all(checks.values()) else "🔴 FAIL"
                         extracted_info = f"Brand: {res.get('brand')} | ABV: {res.get('abv')}"
                     else:
                         verdict = "💥 ERROR"
