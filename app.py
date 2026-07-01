@@ -206,8 +206,14 @@ def analyze_label_with_ai(image_file, file_name):
             if isinstance(response.parsed, dict):
                 return response.parsed
         except Exception as e:
-            # If live API fails, gracefully drop down to local extraction
-            pass
+            # If the token is invalid (401/403), notify the user explicitly 
+            # instead of masking a configuration failure under a global 'pass'
+            if "api key" in str(e).lower() or "unauthorized" in str(e).lower() or "forbidden" in str(e).lower():
+                st.sidebar.error("❌ Authentication Failed: Provided API key is invalid.")
+                # Force fallback processing but notify the user they are running locally
+                st.warning("🔄 Direct cloud authentication failed. Engaging edge-computing local fallback engine.")
+            else:
+                pass # Continue to local processing for standard timeouts/network drops
 
     # -------------------------------------------------------------
     # PATH B: LOCAL ZERO-KEY PIXEL ANALYSIS (True Fallback Engine)
@@ -254,6 +260,15 @@ def analyze_label_with_ai(image_file, file_name):
         if brand_find:
             # Dynamically extract whatever custom text was printed right before the keyword
             candidate_brand = brand_find.group(1).strip()
+            
+            # If there's an OCR prefix typo (like DOTTLED instead of BOTTLED, .etc), grab only the final 2 words
+            words = candidate_brand.split()
+            if len(words) > 2:
+                candidate_brand = " ".join(words[-2:])
+                
+            if len(candidate_brand) > 2:
+                extracted_brand = candidate_brand.upper()
+
             # Clean out common preceding noise descriptors from line wrapping
             candidate_brand = re.sub(r".*(?:bottled|distilled|and|by)\s+", "", candidate_brand, flags=re.IGNORECASE)
             if len(candidate_brand) > 2:
