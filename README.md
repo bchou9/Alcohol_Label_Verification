@@ -9,10 +9,6 @@ pinned: false
 ---
 
 # 🇺🇸 TTB AI-Powered Alcohol Label Verification Portal
-**Target Position:** IT Specialist (Artificial Intelligence) — Treasury Shared Services (GS-15)  
-**System Classification:** Administrative Decision Support System (DSS) Prototype  
-**CI/CD Pipeline Status:** Active Cloud Build  
-
 An AI-native, high-velocity compliance pre-screener optimized for the Treasury Common Services Center (CSC) operational guidelines. By consolidating execution boundaries into a single-file Streamlit framework backed by an air-gapped on-container computer vision fallback module, this solution completely eliminates the high maintenance debt, total cost of ownership (TCO), and cross-origin security friction of traditional web stacks.
 
 ---

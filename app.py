@@ -249,10 +249,10 @@ def analyze_label_with_ai(image_file, file_name):
         tier1_pattern = re.compile(r"([A-Z0-9\s'\-]+?)\s+(?:distillery|distilling)", re.IGNORECASE)
         brand_find = tier1_pattern.search(full_extracted_text)
         
-        # Tier 2: Fallback to loose product commodities if no facility string matches
+        # Tier 2: Expanded Fallback Core to satisfy all mandatory Federal Beverage Classes (Wine, Beer, Spirits)
         if not brand_find:
             tier2_pattern = re.compile(
-                r"([A-Z0-9\s'\-]+?)\s+(?:gin|vodka|whiskey|whisky|bourbon|rum|tequila)", 
+                r"([A-Z0-9\s'\-]+?)\s+(?:gin|vodka|whiskey|whisky|bourbon|rum|tequila|wine|vineyard|vineyards|cellars|brewery|brewing|ale|beer|stout|ipa|cider)", 
                 re.IGNORECASE
             )
             brand_find = tier2_pattern.search(full_extracted_text)
