@@ -159,6 +159,11 @@ def get_ocr_reader():
     """Caches the EasyOCR reader globally in RAM so it loads exactly once on startup."""
     return easyocr.Reader(['en'], gpu=False)
 
+# --- STRATEGIC FIX: EAGER CONTAINER WARM-UP ---
+# Forces RAM allocation on system initialization so Sarah's 1st run hits 4 seconds immediately.
+with st.spinner("Warming up local compliance engines..."):
+    _ = get_ocr_reader()
+
 def analyze_label_with_ai(image_file, file_name):
     """
     Extracts label text. Falls back to a local, zero-key EasyOCR engine 
