@@ -8,7 +8,7 @@ app_port: 7860
 pinned: false
 ---
 
-# 🇺🇸 TTB AI-Powered Alcohol Label Verification Portal
+# TTB AI-Powered Alcohol Label Verification Portal
 An AI-native, high-velocity compliance pre-screener optimized for the Treasury Common Services Center (CSC) operational guidelines. By consolidating execution boundaries into a single-file Streamlit framework backed by an air-gapped on-container computer vision fallback module, this solution completely eliminates the high maintenance debt, total cost of ownership (TCO), and cross-origin security friction of traditional web stacks.
 
 ---
